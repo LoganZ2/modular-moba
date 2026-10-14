@@ -1,0 +1,43 @@
+[package]
+name = "moba-client"
+description = "Browser client (Rust -> WebAssembly): pixel-art renderer, input, UI and networking"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+moba-core.workspace = true
+postcard.workspace = true
+wasm-bindgen = "=0.2.129"
+js-sys = "0.3"
+console_error_panic_hook = "0.1"
+
+[dependencies.web-sys]
+version = "0.3"
+features = [
+  "BinaryType",
+  "CanvasRenderingContext2d",
+  "CssStyleDeclaration",
+  "DomRect",
+  "Document",
+  "Element",
+  "Event",
+  "EventTarget",
+  "FocusEvent",
+  "HtmlCanvasElement",
+  "HtmlElement",
+  "ImageData",
+  "KeyboardEvent",
+  "Location",
+  "MessageEvent",
+  "MouseEvent",
+  "Performance",
+  "Storage",
+  "WebSocket",
+  "WheelEvent",
+  "Window",
+  "console",
+]

@@ -1,0 +1,14 @@
+[package]
+name = "moba-server"
+description = "Authoritative game server: lobby, matchmaking rooms and the 30 Hz simulation loop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+moba-core.workspace = true
+postcard.workspace = true
+axum = { version = "0.8", features = ["ws"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "signal"] }
+tower-http = { version = "0.6", features = ["fs"] }
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }

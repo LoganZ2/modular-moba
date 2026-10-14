@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Modular MOBA</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #08060c; overflow: hidden; }
+    body { display: flex; align-items: center; justify-content: center; }
+    #game {
+      display: block;
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+      cursor: none;
+      outline: none;
+    }
+    #loading { position: absolute; color: #f0d060; font: 16px monospace; letter-spacing: 1px; }
+  </style>
+</head>
+<body>
+  <div id="loading">Loading Modular MOBA...</div>
+  <canvas id="game" tabindex="0"></canvas>
+  <script type="module">
+    import init from './pkg/moba_client.js';
+    init().catch((e) => {
+      document.getElementById('loading').textContent =
+        'Failed to load the game (did you run scripts/build-client.sh?) ' + e;
+      console.error(e);
+    });
+  </script>
+</body>
+</html>
