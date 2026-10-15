@@ -272,6 +272,13 @@ impl GameView {
             }
         }
         self.prev_pos = prev_pos;
+        let mut snap = snap;
+        if snap.players.is_empty() {
+            // Scoreboard rows only arrive every few ticks; keep the last ones.
+            if let Some(cur) = &self.cur {
+                snap.players = cur.players.clone();
+            }
+        }
         self.prev = self.cur.take();
         self.cur = Some(snap);
         self.cur_at = now;

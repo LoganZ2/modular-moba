@@ -68,7 +68,7 @@ impl GameView {
         if let (Some(m), Some(row)) = (&me, self.me.and_then(|i| cur.players.get(i as usize))) {
             g.text_s(&format!("{}/{}/{}  CS {}", row.kills, row.deaths, row.assists, row.cs), sx + 6.0, 15.0, ui::TEXT);
             let _ = m;
-        } else {
+        } else if self.me.is_none() {
             g.text_s("Spectating", sx + 6.0, 15.0, ui::DIM);
         }
         let mut fy = 28.0;
@@ -570,5 +570,25 @@ impl GameView {
                 g.text_right(&format!("{:.0}", r.respawn.ceil()), x + w - 6.0, ry + 3.0, ui::BAD);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn level_up_rules_match_the_server() {
+        let mut me = SelfView { level: 1, skill_points: 1, ..Default::default() };
+        assert!(can_level(&me, 0, 5));
+        assert!(!can_level(&me, 3, 3), "R needs level 6");
+        me.level = 6;
+        assert!(can_level(&me, 3, 3));
+        me.ranks = [3, 0, 0, 1];
+        me.level = 5;
+        assert!(!can_level(&me, 0, 5), "basic rank is capped at (level + 1) / 2");
+        assert!(!can_level(&me, 3, 3), "R rank 2 needs level 11");
+        me.skill_points = 0;
+        assert!(!can_level(&me, 1, 5));
     }
 }

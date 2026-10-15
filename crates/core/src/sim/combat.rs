@@ -135,7 +135,9 @@ pub(crate) fn deal_damage(
         }
     }
     if dead {
-        kill(w, ti, si.map(|_| source));
+        // Source 0 is the fountain; a non-zero id that no longer resolves is a
+        // unit that died while its projectile was in flight.
+        kill(w, ti, (source != 0).then_some(source));
     }
     amount
 }
@@ -254,7 +256,7 @@ pub(crate) fn kill(w: &mut World, vi: usize, killer: Option<EntityId>) {
                 }
             }
         }
-        UnitKind::Hero(h) => hero_death(w, vi, &h, killer_idx),
+        UnitKind::Hero(h) => hero_death(w, vi, &h, killer, killer_idx),
         UnitKind::Structure(s) => {
             let enemy = vteam.enemy();
             match s.kind {
@@ -314,7 +316,7 @@ fn share_xp(w: &mut World, pos: Vec2, team: Team, xp: f32) {
     }
 }
 
-fn hero_death(w: &mut World, vi: usize, h: &HeroState, killer_idx: Option<usize>) {
+fn hero_death(w: &mut World, vi: usize, h: &HeroState, killer: Option<EntityId>, killer_idx: Option<usize>) {
     let time = w.time;
     let vteam = w.entities[vi].team;
     let vpos = w.entities[vi].pos;
@@ -346,7 +348,9 @@ fn hero_death(w: &mut World, vi: usize, h: &HeroState, killer_idx: Option<usize>
             Some(UnitKind::Structure(_)) => Killer::Tower(enemy),
             Some(UnitKind::Minion(_)) => Killer::Minion(enemy),
             Some(UnitKind::Monster(_)) => Killer::Monster,
-            _ => Killer::Fountain,
+            Some(UnitKind::Hero(_)) => Killer::Minion(enemy),
+            None if killer.is_some() => Killer::Minion(enemy),
+            None => Killer::Fountain,
         },
     };
     let assists: Vec<u8> = assist_idx.iter().filter_map(|&i| w.entities[i].hero().map(|x| x.player as u8)).collect();

@@ -29,7 +29,7 @@ pub use entity::*;
 
 use crate::heroes::hero;
 use crate::loadout::Loadout;
-use crate::map::{GameMap, LANE_BOT, LANE_MID, LANE_TOP};
+use crate::map::{GameMap, LANE_BOT, LANE_MID, LANE_TOP, MAP_SIZE};
 use crate::math::{Rng, Vec2};
 use crate::protocol::{Command, FxEvent, ProjectileStyle, TeamScore, ZoneKind};
 use crate::skills::{DamageKind, SkillId};
@@ -691,6 +691,31 @@ impl World {
     // ------------------------------------------------------------ commands
 
     pub fn apply_command(&mut self, player: usize, cmd: Command) {
+        // Commands come from the network: drop non-finite coordinates and
+        // clamp everything else onto the map.
+        let clamp = |v: Vec2| -> Option<Vec2> {
+            (v.x.is_finite() && v.y.is_finite())
+                .then(|| Vec2::new(v.x.clamp(0.0, MAP_SIZE - 1.0), v.y.clamp(0.0, MAP_SIZE - 1.0)))
+        };
+        let cmd = match cmd {
+            Command::Move(v) => Command::Move(match clamp(v) {
+                Some(v) => v,
+                None => return,
+            }),
+            Command::AttackMove(v) => Command::AttackMove(match clamp(v) {
+                Some(v) => v,
+                None => return,
+            }),
+            Command::Cast { slot, point, unit } => match clamp(point) {
+                Some(point) => Command::Cast { slot, point, unit },
+                None => return,
+            },
+            Command::Summoner { slot, point, unit } => match clamp(point) {
+                Some(point) => Command::Summoner { slot, point, unit },
+                None => return,
+            },
+            other => other,
+        };
         let Some(p) = self.players.get(player) else {
             return;
         };

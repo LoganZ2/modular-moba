@@ -71,28 +71,32 @@ pub(crate) fn build(w: &World, player: Option<usize>) -> Snapshot {
 
     let me = my_entity.and_then(|id| w.get(id)).map(|e| self_view(w, e));
 
-    let players = w
-        .players
-        .iter()
-        .map(|p| {
-            let e = w.get(p.entity);
-            let h = e.and_then(|e| e.hero());
-            PlayerRow {
-                index: p.index as u8,
-                team: p.team,
-                hero: p.loadout.hero,
-                level: h.map(|h| h.level).unwrap_or(1),
-                kills: h.map(|h| h.kills).unwrap_or(0),
-                deaths: h.map(|h| h.deaths).unwrap_or(0),
-                assists: h.map(|h| h.assists).unwrap_or(0),
-                cs: h.map(|h| h.cs).unwrap_or(0),
-                items: h.map(|h| h.items.map(|s| s.map(|(id, _)| id))).unwrap_or([None; 6]),
-                respawn: h
-                    .map(|h| if e.map(|e| e.alive).unwrap_or(true) { 0.0 } else { h.respawn.max(0.0) })
-                    .unwrap_or(0.0),
-            }
-        })
-        .collect();
+    // The scoreboard changes slowly: send it three times a second.
+    let players = if !w.tick.is_multiple_of(10) && w.winner.is_none() {
+        Vec::new()
+    } else {
+        w.players
+            .iter()
+            .map(|p| {
+                let e = w.get(p.entity);
+                let h = e.and_then(|e| e.hero());
+                PlayerRow {
+                    index: p.index as u8,
+                    team: p.team,
+                    hero: p.loadout.hero,
+                    level: h.map(|h| h.level).unwrap_or(1),
+                    kills: h.map(|h| h.kills).unwrap_or(0),
+                    deaths: h.map(|h| h.deaths).unwrap_or(0),
+                    assists: h.map(|h| h.assists).unwrap_or(0),
+                    cs: h.map(|h| h.cs).unwrap_or(0),
+                    items: h.map(|h| h.items.map(|s| s.map(|(id, _)| id))).unwrap_or([None; 6]),
+                    respawn: h
+                        .map(|h| if e.map(|e| e.alive).unwrap_or(true) { 0.0 } else { h.respawn.max(0.0) })
+                        .unwrap_or(0.0),
+                }
+            })
+            .collect()
+    };
 
     let fog = if w.vision_dirty && team != Team::Neutral { Some(w.vision[team.index()].packed()) } else { None };
 

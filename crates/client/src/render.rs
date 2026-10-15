@@ -143,6 +143,26 @@ impl GameView {
             }
         }
 
+        // Enemy tower range when we get close (like LoL's red tower circle).
+        if let Some(me) = self.my_entity().filter(|e| e.alive()) {
+            let mp = self.pos_of(me);
+            for t in &cur.entities {
+                let is_tower = matches!(t.unit, UnitView::Structure(StructureKind::Tower { .. }));
+                if !is_tower || !t.alive() || t.team == my_team {
+                    continue;
+                }
+                let reach = moba_core::units::TOWER_RANGE + 18.0 + 11.0; // tower + hero radius
+                let d = t.pos.distance(mp);
+                if d < reach + 70.0 {
+                    let (tx, ty) = self.to_screen(g, t.pos);
+                    let danger = d < reach + 10.0;
+                    g.set_alpha(if danger { 0.75 } else { 0.35 });
+                    g.ring(tx, ty, reach as f64, 0xff4040);
+                    g.set_alpha(1.0);
+                }
+            }
+        }
+
         // Skill / attack range indicators for my hero.
         if let (Some(me), Some(mev)) = (self.my_entity(), self.me_view()) {
             let mp = self.pos_of(me);

@@ -13,7 +13,7 @@ use crate::units::{MinionKind, MonsterKind, StructureKind};
 use crate::{EntityId, Team};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
-pub const PROTOCOL_VERSION: u32 = 1;
+pub const PROTOCOL_VERSION: u32 = 2;
 pub const TEAM_SIZE: usize = 5;
 
 pub fn encode<T: Serialize>(msg: &T) -> Vec<u8> {
@@ -138,6 +138,7 @@ pub struct Snapshot {
     pub events: Vec<FxEvent>,
     pub me: Option<SelfView>,
     pub score: [TeamScore; 2],
+    /// Scoreboard rows. Sent every few ticks; empty means "unchanged".
     pub players: Vec<PlayerRow>,
     /// Team vision bitmap (VISION_GRID^2 bits, row major), sent a few times a second.
     pub fog: Option<Vec<u8>>,
@@ -187,13 +188,20 @@ pub struct EntityView {
     pub id: EntityId,
     pub team: Team,
     pub unit: UnitView,
+    #[serde(with = "quant::pos")]
     pub pos: Vec2,
     /// Facing angle in radians.
+    #[serde(with = "quant::angle")]
     pub facing: f32,
+    #[serde(with = "quant::whole")]
     pub hp: f32,
+    #[serde(with = "quant::whole")]
     pub max_hp: f32,
+    #[serde(with = "quant::whole")]
     pub shield: f32,
+    #[serde(with = "quant::whole")]
     pub mana: f32,
+    #[serde(with = "quant::whole")]
     pub max_mana: f32,
     pub flags: u32,
     /// Current attack target (for attack animation and lines).
@@ -226,7 +234,9 @@ pub enum ProjectileStyle {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ProjectileView {
     pub id: u32,
+    #[serde(with = "quant::pos")]
     pub pos: Vec2,
+    #[serde(with = "quant::angle")]
     pub angle: f32,
     pub style: ProjectileStyle,
     pub color: u32,
@@ -350,6 +360,56 @@ pub struct PlayerRow {
     pub respawn: f32,
 }
 
+/// Lossy-but-plenty compact encodings for the hot snapshot fields
+/// (postcard writes integers as varints, so small integers are 1-3 bytes).
+pub mod quant {
+    /// Positions in 1/4 map units (two u16 varints instead of two f32).
+    pub mod pos {
+        use crate::math::Vec2;
+        use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+        const K: f32 = 4.0;
+
+        pub fn serialize<S: Serializer>(v: &Vec2, s: S) -> Result<S::Ok, S::Error> {
+            let q = |x: f32| (x * K).round().clamp(0.0, u16::MAX as f32) as u16;
+            (q(v.x), q(v.y)).serialize(s)
+        }
+
+        pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Vec2, D::Error> {
+            let (x, y) = <(u16, u16)>::deserialize(d)?;
+            Ok(Vec2::new(x as f32 / K, y as f32 / K))
+        }
+    }
+
+    /// Angles as one byte (1.4 degree steps).
+    pub mod angle {
+        use serde::{Deserialize, Deserializer, Serialize, Serializer};
+        use std::f32::consts::TAU;
+
+        pub fn serialize<S: Serializer>(a: &f32, s: S) -> Result<S::Ok, S::Error> {
+            let turns = if a.is_finite() { (a / TAU).rem_euclid(1.0) } else { 0.0 };
+            (((turns * 256.0).round() as u32 % 256) as u8).serialize(s)
+        }
+
+        pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<f32, D::Error> {
+            Ok(u8::deserialize(d)? as f32 / 256.0 * TAU)
+        }
+    }
+
+    /// Non-negative quantities (health, mana, shields) rounded to integers.
+    pub mod whole {
+        use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+        pub fn serialize<S: Serializer>(v: &f32, s: S) -> Result<S::Ok, S::Error> {
+            (v.max(0.0).round().min(u32::MAX as f32) as u32).serialize(s)
+        }
+
+        pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<f32, D::Error> {
+            Ok(u32::deserialize(d)? as f32)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -380,7 +440,7 @@ mod tests {
                 team: Team::Red,
                 unit: UnitView::Hero { hero: HeroId(1), level: 3, player: 0 },
                 pos: Vec2::new(1.0, 2.0),
-                facing: 0.5,
+                facing: 0.0,
                 hp: 100.0,
                 max_hp: 200.0,
                 shield: 0.0,
@@ -399,5 +459,35 @@ mod tests {
             other => panic!("bad decode {other:?}"),
         }
         assert!(decode::<ServerMsg>(&[255, 255, 255]).is_none());
+    }
+}
+
+#[cfg(test)]
+mod quant_tests {
+    use super::*;
+
+    #[test]
+    fn quantization_is_close() {
+        let e = EntityView {
+            id: 3,
+            team: Team::Blue,
+            unit: UnitView::Minion(MinionKind::Caster),
+            pos: Vec2::new(1234.56, 3199.9),
+            facing: -2.0,
+            hp: 99.6,
+            max_hp: 300.0,
+            shield: 0.2,
+            mana: 0.0,
+            max_mana: 0.0,
+            flags: 0,
+            target: Some(9),
+            cast: None,
+        };
+        let back: EntityView = decode(&encode(&e)).unwrap();
+        assert!(back.pos.distance(e.pos) < 0.2);
+        let da = crate::math::angle_diff(back.facing, e.facing);
+        assert!(da.abs() < 0.03, "{da}");
+        assert_eq!(back.hp, 100.0);
+        assert!(encode(&e).len() < 24, "entity encodes to {} bytes", encode(&e).len());
     }
 }

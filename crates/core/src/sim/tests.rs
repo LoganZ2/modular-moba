@@ -316,3 +316,29 @@ fn every_hero_and_skill_can_be_cast() {
         }
     }
 }
+
+#[test]
+fn hostile_commands_are_harmless() {
+    let (mut w, a, _) = duel_world();
+    let bad = [f32::NAN, f32::INFINITY, -1e30, 1e30];
+    for &x in &bad {
+        for &y in &bad {
+            let v = Vec2::new(x, y);
+            w.step(&[
+                (0, Command::Move(v)),
+                (0, Command::AttackMove(v)),
+                (0, Command::Cast { slot: 0, point: v, unit: Some(999_999) }),
+                (0, Command::Summoner { slot: 0, point: v, unit: None }),
+                (0, Command::LevelUp(200)),
+                (0, Command::Sell(200)),
+                (0, Command::UseItem(200)),
+                (0, Command::Buy(crate::items::ItemId(250))),
+                (7, Command::Stop),
+            ]);
+        }
+    }
+    run(&mut w, 2.0);
+    let p = w.entities[a].pos;
+    assert!(p.x.is_finite() && p.y.is_finite());
+    assert!(w.map.walkable(p));
+}
