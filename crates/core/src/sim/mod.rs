@@ -777,7 +777,7 @@ impl World {
             Command::Recall => {
                 let baron = self.entities[i].has(|k| matches!(k, StatusKind::BaronBuff));
                 let e = &mut self.entities[i];
-                if e.dash.is_some() || e.stunned() {
+                if e.dash.is_some() || e.stunned() || e.taunted_by().is_some() {
                     return;
                 }
                 let time = if baron { RECALL_TIME / 2.0 } else { RECALL_TIME };

@@ -16,6 +16,8 @@ use tokio::sync::mpsc::UnboundedSender;
 /// Seconds the scoreboard stays up after a nexus falls before the room
 /// returns to the lobby automatically.
 const POST_GAME_SECONDS: f32 = 30.0;
+/// Commands accepted per player per tick (a human issues a handful at most).
+const MAX_COMMANDS_PER_TICK: u16 = 32;
 
 pub enum RoomEvent {
     Join { id: u32, name: String, tx: UnboundedSender<Vec<u8>> },
@@ -36,7 +38,8 @@ struct Game {
     /// member id -> player index in the world
     players: HashMap<u32, usize>,
     pending: Vec<(usize, Command)>,
-    infos: Vec<PlayerInfo>,
+    /// Commands queued this tick, per player index (flood protection).
+    queued: Vec<u16>,
     post_game: f32,
 }
 
@@ -138,12 +141,9 @@ impl Room {
         }
         println!("[{}] {name} (#{id}) joined", self.name);
         self.send(id, &ServerMsg::Welcome { player_id: id });
+        // Late joiners wait in the lobby for the next match. (There is no live
+        // spectating: an unfogged view would let players scout for their team.)
         self.broadcast_lobby();
-        if let Some(g) = &self.game {
-            // Late joiners spectate the running match.
-            let start = GameStart { players: g.infos.clone(), you: None };
-            self.send(id, &ServerMsg::GameStart(start));
-        }
     }
 
     fn leave(&mut self, id: u32) {
@@ -207,8 +207,11 @@ impl Room {
             ClientMsg::Command(c) => {
                 if let Some(g) = &mut self.game {
                     if let Some(&p) = g.players.get(&id) {
-                        if g.pending.len() < 4096 {
-                            g.pending.push((p, c));
+                        if let Some(n) = g.queued.get_mut(p) {
+                            if *n < MAX_COMMANDS_PER_TICK {
+                                *n += 1;
+                                g.pending.push((p, c));
+                            }
                         }
                     }
                 }
@@ -280,11 +283,16 @@ impl Room {
             }
         }
         println!("[{}] game started with {} human player(s)", self.name, players.len());
+        // Only seated players enter the match; unseated members stay in the
+        // lobby until it ends.
         for m in &self.members {
-            let you = players.get(&m.id).map(|&p| p as u8);
-            let _ = m.tx.send(encode(&ServerMsg::GameStart(GameStart { players: infos.clone(), you })));
+            if let Some(&p) = players.get(&m.id) {
+                let start = GameStart { players: infos.clone(), you: Some(p as u8) };
+                let _ = m.tx.send(encode(&ServerMsg::GameStart(start)));
+            }
         }
-        self.game = Some(Game { world, players, pending: Vec::new(), infos, post_game: 0.0 });
+        let queued = vec![0; world.players.len()];
+        self.game = Some(Game { world, players, pending: Vec::new(), queued, post_game: 0.0 });
         self.broadcast_lobby();
     }
 
@@ -293,10 +301,13 @@ impl Room {
         let Some(g) = &mut self.game else { return };
         let cmds = std::mem::take(&mut g.pending);
         g.world.step(&cmds);
+        g.queued.iter_mut().for_each(|n| *n = 0);
         for m in &self.members {
-            let player = g.players.get(&m.id).copied();
-            let snap = g.world.snapshot_for(player);
-            let _ = m.tx.send(encode(&ServerMsg::Snapshot(Box::new(snap))));
+            // Each player only ever receives their own team's fogged view.
+            if let Some(&player) = g.players.get(&m.id) {
+                let snap = g.world.snapshot_for(Some(player));
+                let _ = m.tx.send(encode(&ServerMsg::Snapshot(Box::new(snap))));
+            }
         }
         if g.world.winner.is_some() {
             g.post_game += 1.0 / TICK_RATE as f32;
@@ -386,6 +397,34 @@ mod tests {
         room.handle(RoomEvent::Leave { id: 2 });
         assert!(!room.in_game());
         assert!(room.is_empty());
+    }
+
+    #[test]
+    fn flooding_client_cannot_starve_others_and_late_joiners_get_no_view() {
+        let mut room = Room::new("flood".into(), 3);
+        let (tx1, _rx1) = unbounded_channel();
+        let (tx2, mut rx2) = unbounded_channel();
+        room.handle(RoomEvent::Join { id: 1, name: "Spam".into(), tx: tx1 });
+        room.handle(RoomEvent::Join { id: 2, name: "Fair".into(), tx: tx2 });
+        room.handle(RoomEvent::Msg { id: 1, msg: ClientMsg::StartGame });
+        for _ in 0..10_000 {
+            room.handle(RoomEvent::Msg { id: 1, msg: ClientMsg::Command(Command::Stop) });
+        }
+        room.handle(RoomEvent::Msg { id: 2, msg: ClientMsg::Command(Command::Recall) });
+        let g = room.game.as_ref().unwrap();
+        let fair = g.players[&2];
+        assert!(g.pending.iter().any(|(p, c)| *p == fair && *c == Command::Recall));
+        assert!(g.pending.len() <= 2 * MAX_COMMANDS_PER_TICK as usize);
+        room.tick();
+        drain(&mut rx2);
+
+        // A third connection mid-match only sees the lobby.
+        let (tx3, mut rx3) = unbounded_channel();
+        room.handle(RoomEvent::Join { id: 3, name: "Late".into(), tx: tx3 });
+        room.tick();
+        let msgs = drain(&mut rx3);
+        assert!(msgs.iter().any(|m| matches!(m, ServerMsg::Lobby(l) if l.in_game)));
+        assert!(!msgs.iter().any(|m| matches!(m, ServerMsg::Snapshot(_) | ServerMsg::GameStart(_))));
     }
 
     #[test]

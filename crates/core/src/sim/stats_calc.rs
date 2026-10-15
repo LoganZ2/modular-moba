@@ -11,6 +11,12 @@ use crate::stats::StatBlock;
 pub(crate) fn tick_statuses(w: &mut World) {
     let mut burns: Vec<(EntityId, f32, EntityId)> = Vec::new();
     for e in &mut w.entities {
+        // Cooldowns keep running while a champion is dead (as in LoL).
+        if let Some(h) = e.hero_mut() {
+            for cd in h.cooldowns.iter_mut().chain(h.summoner_cd.iter_mut()) {
+                *cd = (*cd - DT).max(0.0);
+            }
+        }
         if !e.alive {
             e.statuses.clear();
             continue;
@@ -30,9 +36,6 @@ pub(crate) fn tick_statuses(w: &mut World) {
         e.attack_cd -= DT;
         e.repath -= DT;
         if let Some(h) = e.hero_mut() {
-            for cd in h.cooldowns.iter_mut().chain(h.summoner_cd.iter_mut()) {
-                *cd = (*cd - DT).max(0.0);
-            }
             h.damagers.retain(|(_, t)| w.time - *t <= ASSIST_WINDOW);
         }
     }

@@ -445,6 +445,8 @@ impl GameView {
             g.text_center(if self.is_local() { "PAUSED" } else { "MENU" }, g.w / 2.0, y + 6.0, ui::GOLD, 1.0, false);
             if ui::button(g, inp, x + 10.0, y + 20.0, w - 20.0, 16.0, "RESUME", true) || inp.key("Escape") {
                 self.menu = false;
+                // Consume the key so handle_input doesn't reopen the menu this frame.
+                inp.pressed.retain(|k| k.code != "Escape");
             }
             let leave_label = if self.is_local() { "SURRENDER & QUIT" } else { "LEAVE MATCH" };
             if ui::button(g, inp, x + 10.0, y + 42.0, w - 20.0, 16.0, leave_label, true) {

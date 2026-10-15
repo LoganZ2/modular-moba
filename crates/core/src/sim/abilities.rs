@@ -53,6 +53,7 @@ pub(crate) fn command_cast(w: &mut World, i: usize, slot: u8, mut target: CastTa
             || h.cast.is_some()
             || e.stunned()
             || e.silenced()
+            || e.taunted_by().is_some()
             || e.dash.is_some()
         {
             return;

@@ -342,3 +342,37 @@ fn hostile_commands_are_harmless() {
     assert!(p.x.is_finite() && p.y.is_finite());
     assert!(w.map.walkable(p));
 }
+
+#[test]
+fn cooldowns_tick_while_dead() {
+    let (mut w, a, _) = duel_world();
+    w.step(&[(0, Command::LevelUp(0))]);
+    let p = w.entities[a].pos + Vec2::new(50.0, 0.0);
+    // Flash first: it can't be used while Shield Bash's dash is in progress.
+    w.step(&[(0, Command::Summoner { slot: 0, point: p, unit: None })]);
+    w.step(&[(0, Command::Cast { slot: 0, point: p, unit: None })]);
+    let (q, flash) = {
+        let h = w.entities[a].hero().unwrap();
+        (h.cooldowns[0], h.summoner_cd[0])
+    };
+    assert!(q > 5.0 && flash > 100.0);
+    combat::kill(&mut w, a, None);
+    run(&mut w, 5.0);
+    let h = w.entities[a].hero().unwrap();
+    assert!(h.cooldowns[0] < q - 4.5, "Q cooldown froze while dead");
+    assert!(h.summoner_cd[0] < flash - 4.5, "Flash cooldown froze while dead");
+}
+
+#[test]
+fn taunt_blocks_recall_and_casting() {
+    let (mut w, a, b) = duel_world();
+    w.step(&[(1, Command::LevelUp(0))]);
+    let taunter = w.entities[a].id;
+    w.entities[b].add_status(StatusKind::Taunt(taunter), 2.0);
+    let p = w.entities[a].pos;
+    w.step(&[(1, Command::Recall), (1, Command::Cast { slot: 0, point: p, unit: None })]);
+    let h = w.entities[b].hero().unwrap();
+    assert!(h.recall.is_none(), "taunted heroes can't recall");
+    assert_eq!(h.cooldowns[0], 0.0, "taunted heroes can't cast");
+    assert_eq!(w.entities[b].engage, Some(taunter));
+}
