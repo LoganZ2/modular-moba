@@ -3,7 +3,7 @@ name = "moba-core"
 description = "Shared game rules, content, simulation and wire protocol for Modular MOBA"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
+rust-version.workspace = true
 
 [dependencies]
 serde.workspace = true

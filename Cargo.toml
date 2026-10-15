@@ -8,7 +8,7 @@ default-members = ["crates/core", "crates/server"]
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-license = "MIT"
+rust-version = "1.87"
 
 [workspace.dependencies]
 moba-core = { path = "crates/core" }

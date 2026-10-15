@@ -8,8 +8,12 @@ use moba_core::{Team, TICK_RATE};
 fn main() {
     let seed: u64 = std::env::args().nth(1).and_then(|s| s.parse().ok()).unwrap_or(7);
     let minutes: f32 = std::env::args().nth(2).and_then(|s| s.parse().ok()).unwrap_or(40.0);
-    let setups = HEROES
-        .iter()
+    // `rot` rotates the hero list so different heroes get different roles.
+    let rot: usize = std::env::args().find_map(|a| a.strip_prefix("rot=").and_then(|v| v.parse().ok())).unwrap_or(0);
+    let mut heroes: Vec<_> = HEROES.iter().collect();
+    heroes.rotate_left(rot % HEROES.len());
+    let setups = heroes
+        .into_iter()
         .enumerate()
         .map(|(n, h)| PlayerSetup {
             name: h.name.to_string(),
@@ -21,8 +25,19 @@ fn main() {
     let mut w = World::new(setups, seed);
     let start = std::time::Instant::now();
     let total = (minutes * 60.0 * TICK_RATE as f32) as u32;
+    let mut death_causes: std::collections::BTreeMap<(String, String), u32> = Default::default();
     for t in 0..total {
         w.step(&[]);
+        for (_, ev) in &w.events {
+            if let moba_core::protocol::FxEvent::Kill { killer, victim, .. } = ev {
+                let name = w.players[*victim as usize].name.clone();
+                let cause = match killer {
+                    moba_core::protocol::Killer::Player(_) => "champion".to_string(),
+                    k => format!("{k:?}"),
+                };
+                *death_causes.entry((name, cause)).or_default() += 1;
+            }
+        }
         if t % (TICK_RATE * 60) == 0 || w.winner.is_some() {
             let s = &w.teams;
             println!(
@@ -61,6 +76,11 @@ fn main() {
         if let Some(win) = w.winner {
             println!("WINNER: {win:?} at {:.1} min", w.time / 60.0);
             break;
+        }
+    }
+    if std::env::args().any(|a| a == "causes") {
+        for ((who, cause), n) in &death_causes {
+            println!("   death: {who:<9} by {cause:<14} x{n}");
         }
     }
     let el = start.elapsed().as_secs_f32();

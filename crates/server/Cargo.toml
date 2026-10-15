@@ -3,7 +3,7 @@ name = "moba-server"
 description = "Authoritative game server: lobby, matchmaking rooms and the 30 Hz simulation loop"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
+rust-version.workspace = true
 
 [dependencies]
 moba-core.workspace = true

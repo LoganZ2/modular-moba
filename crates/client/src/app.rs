@@ -160,7 +160,9 @@ impl App {
         } else {
             self.menu_screen(&mut inp);
         }
-        if !matches!(self.screen, Screen::Game(_)) {
+        // Rasterise the remaining terrain chunks in the background (one per
+        // frame in menus, one every few frames during a match).
+        if !matches!(self.screen, Screen::Game(_)) || (now as u64 / 16).is_multiple_of(6) {
             self.terrain.prefetch_one();
         }
         let g = &self.gfx;

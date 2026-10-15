@@ -23,11 +23,30 @@ pub struct LocalSim {
     pending: Vec<Command>,
     acc: f64,
     pub paused: bool,
+    /// Fast-forward factor (debug: `?speed=N` in the page URL).
+    pub speed: f64,
+}
+
+/// `?speed=N` from the page URL (1 when absent).
+pub fn url_speed() -> f64 {
+    web_sys::window()
+        .and_then(|w| w.location().search().ok())
+        .and_then(|q| q.trim_start_matches('?').split('&').find_map(|kv| kv.strip_prefix("speed=").map(str::to_string)))
+        .and_then(|v| v.parse::<f64>().ok())
+        .map(|v| v.clamp(0.25, 30.0))
+        .unwrap_or(1.0)
 }
 
 impl LocalSim {
     pub fn new(setups: Vec<PlayerSetup>, me: usize, seed: u64) -> LocalSim {
-        LocalSim { world: World::new(setups, seed), me, pending: Vec::new(), acc: 0.0, paused: false }
+        LocalSim {
+            world: World::new(setups, seed),
+            me,
+            pending: Vec::new(),
+            acc: 0.0,
+            paused: false,
+            speed: url_speed(),
+        }
     }
 
     pub fn push(&mut self, c: Command) {
@@ -39,9 +58,10 @@ impl LocalSim {
         if self.paused {
             return out;
         }
-        self.acc += dt_ms.min(250.0);
+        self.acc += dt_ms.min(250.0) * self.speed;
+        let max_steps = (6.0 * self.speed).ceil() as usize;
         let mut n = 0;
-        while self.acc >= TICK_MS && n < 6 {
+        while self.acc >= TICK_MS && n < max_steps {
             let me = self.me;
             let cmds: Vec<(usize, Command)> = self.pending.drain(..).map(|c| (me, c)).collect();
             self.world.step(&cmds);
@@ -49,7 +69,7 @@ impl LocalSim {
             self.acc -= TICK_MS;
             n += 1;
         }
-        if n == 6 {
+        if n == max_steps {
             self.acc = 0.0;
         }
         out

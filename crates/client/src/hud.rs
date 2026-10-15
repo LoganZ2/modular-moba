@@ -15,7 +15,7 @@ use moba_core::skills::skill;
 use moba_core::units::StructureKind;
 use moba_core::{Team, Vec2};
 
-pub const PANEL_W: f64 = 222.0;
+pub const PANEL_W: f64 = 236.0;
 pub const PANEL_H: f64 = 50.0;
 pub const MINIMAP: f64 = 96.0;
 
@@ -157,7 +157,7 @@ impl GameView {
         g.frame(mmx + ox * k, mmy + oy * k, g.w * k, g.h * k, 0xf0f0f0);
         if inp.in_rect(mmx, mmy, MINIMAP, MINIMAP) {
             let world = Vec2::new(((inp.mx - mmx) / k) as f32, ((inp.my - mmy) / k) as f32);
-            if inp.left && !self.menu && !inp.click_consumed {
+            if (inp.left || inp.left_pressed) && !self.menu && !inp.click_consumed {
                 self.cam = world;
                 self.cam_lock = false;
                 inp.click_consumed = true;
@@ -307,10 +307,10 @@ impl GameView {
                 }
             }
             g.text_s(&format!("{:.0}g", m.gold), px + 166.0, py + 40.0, ui::GOLD);
-            let shop_hover = inp.in_rect(px + 196.0, py + 38.0, 22.0, 10.0);
-            g.rect(px + 196.0, py + 38.0, 22.0, 10.0, if shop_hover { 0x6a5a30 } else { 0x40381c });
-            g.text("SHOP", px + 197.0, py + 39.0, ui::GOLD);
-            if inp.clicked(px + 196.0, py + 38.0, 22.0, 10.0) {
+            let shop_hover = inp.in_rect(px + 208.0, py + 38.0, 25.0, 10.0);
+            g.rect(px + 208.0, py + 38.0, 25.0, 10.0, if shop_hover { 0x6a5a30 } else { 0x40381c });
+            g.text("SHOP", px + 210.0, py + 39.0, ui::GOLD);
+            if inp.clicked(px + 208.0, py + 38.0, 25.0, 10.0) {
                 self.shop = !self.shop;
             }
 
@@ -424,8 +424,10 @@ impl GameView {
             } else {
                 ("DEFEAT".to_string(), 0xf05050)
             };
-            g.text_center(&text, g.w / 2.0, g.h / 2.0 - 50.0, c, 4.0, true);
             self.scoreboard_window(g, &cur);
+            // Above the scoreboard (which is centred and ~200px tall).
+            let ty = (((g.h - 200.0) / 2.0 - 10.0) - 34.0).max(2.0);
+            g.text_center(&text, g.w / 2.0, ty, c, 3.0, true);
             if ui::button(g, inp, g.w / 2.0 - 50.0, g.h - 70.0, 100.0, 16.0, "CONTINUE", true) {
                 action = HudAction::Leave;
             }
@@ -513,7 +515,7 @@ impl GameView {
     }
 
     fn scoreboard_window(&self, g: &Gfx, cur: &moba_core::protocol::Snapshot) {
-        let w = 330.0;
+        let w = 344.0;
         let row_h = 16.0;
         let h = 32.0 + row_h * cur.players.len() as f64 + 8.0;
         let x = ((g.w - w) / 2.0).floor();
@@ -558,14 +560,14 @@ impl GameView {
             g.text_s(def.name, x + 84.0, ry + 3.0, ui::TEXT);
             g.text_s(&format!("{}", r.level), x + 136.0, ry + 3.0, ui::GOLD);
             g.text_s(&format!("{}/{}/{}", r.kills, r.deaths, r.assists), x + 152.0, ry + 3.0, ui::TEXT);
-            g.text_s(&format!("{}", r.cs), x + 196.0, ry + 3.0, ui::DIM);
+            g.text_s(&format!("{}", r.cs), x + 202.0, ry + 3.0, ui::DIM);
             for (i, it) in r.items.iter().enumerate() {
                 if let Some(id) = it {
-                    g.draw_sprite(SpriteKey::Item(*id), x + 218.0 + i as f64 * 15.0, ry);
+                    g.draw_sprite(SpriteKey::Item(*id), x + 222.0 + i as f64 * 15.0, ry);
                 }
             }
             if r.respawn > 0.0 {
-                g.text_s(&format!("{:.0}", r.respawn.ceil()), x + w - 22.0, ry + 3.0, ui::BAD);
+                g.text_right(&format!("{:.0}", r.respawn.ceil()), x + w - 6.0, ry + 3.0, ui::BAD);
             }
         }
     }

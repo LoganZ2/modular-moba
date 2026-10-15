@@ -65,7 +65,7 @@ pub(crate) fn deal_damage(
         // Champions hit jungle camps harder (stands in for LoL's smite /
         // jungle item so solo jungling is viable).
         if src_hero && t.is_monster() && !t.is_epic_monster() {
-            amount *= 1.3;
+            amount *= 1.5;
         }
         if let (true, Some(team)) = (src_hero, src_team) {
             if team != Team::Neutral {

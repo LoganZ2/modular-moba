@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - name: Format
+        run: cargo fmt --all -- --check
+      - name: Clippy (native crates)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Clippy (wasm client)
+        run: cargo clippy -p moba-client --target wasm32-unknown-unknown -- -D warnings
+      - name: Tests
+        run: cargo test --workspace --release
+      - name: Build browser client
+        run: ./scripts/build-client.sh

@@ -121,16 +121,26 @@ fn think(w: &World, p: usize, b: &mut BotBrain, out: &mut Vec<(usize, Command)>)
 
     let enemies = visible_enemy_heroes(w, me_i, 330.0);
     let threat = enemies.len();
+    // Anything (minions, towers, monsters) currently hitting us.
+    let attackers = attackers_of(w, me_i);
     let recalling = h.recall.is_some();
-    let low_line = if threat > 0 { 0.33 } else { 0.22 };
+    let low_line = if threat > 0 || attackers >= 2 {
+        0.35
+    } else if attackers > 0 {
+        0.3
+    } else {
+        0.22
+    };
     if me.hp_frac() < low_line || (mana_frac < 0.1 && me.hp_frac() < 0.5) {
         b.retreating = true;
+        b.jungle_camp = None;
     }
     if b.retreating {
         if threat > 0 {
             use_defensive_summoners(w, me_i, p, &enemies, out);
         }
-        if threat == 0 && !under_enemy_tower(w, team, me.pos) {
+        // Recalling only works when nothing is hitting us (damage cancels it).
+        if threat == 0 && attackers == 0 && !under_enemy_tower(w, team, me.pos) {
             if !recalling {
                 push(out, p, Command::Recall);
             }
@@ -140,11 +150,25 @@ fn think(w: &World, p: usize, b: &mut BotBrain, out: &mut Vec<(usize, Command)>)
         return;
     }
     // Go shopping when rich and safe.
-    if !recalling && threat == 0 && h.gold >= 1400.0 && me.pos.distance(fountain) > 700.0 && next_affordable(h, b) {
+    if !recalling
+        && threat == 0
+        && attackers == 0
+        && h.gold >= 1400.0
+        && me.pos.distance(fountain) > 700.0
+        && next_affordable(h, b)
+    {
         push(out, p, Command::Recall);
         return;
     }
-    if recalling && threat == 0 {
+    if recalling && threat == 0 && attackers == 0 {
+        return;
+    }
+    // Swarmed by minions without backup: step back toward our base.
+    let minion_aggro = minions_hitting(w, me_i);
+    if minion_aggro >= 3 && me.hp_frac() < 0.6 {
+        let lane_path = &w.map.lanes[team.index()][b.role.lane() as usize];
+        let back = GameMap::lane_progress(lane_path, me.pos) - 160.0;
+        push(out, p, Command::Move(GameMap::point_along(lane_path, back)));
         return;
     }
 
@@ -242,6 +266,20 @@ fn shop(w: &World, p: usize, h: &HeroState, b: &mut BotBrain, out: &mut Vec<(usi
         b.build_idx += 1;
     }
     // Use a potion when hurt.
+}
+
+/// Number of hostile units whose current target is us.
+fn attackers_of(w: &World, me_i: usize) -> usize {
+    let me = &w.entities[me_i];
+    w.entities
+        .iter()
+        .filter(|e| e.alive && e.team != me.team && e.engage == Some(me.id) && e.pos.distance(me.pos) < 350.0)
+        .count()
+}
+
+fn minions_hitting(w: &World, me_i: usize) -> usize {
+    let me = &w.entities[me_i];
+    w.entities.iter().filter(|e| e.alive && e.is_minion() && e.team != me.team && e.engage == Some(me.id)).count()
 }
 
 fn visible_enemy_heroes(w: &World, me_i: usize, radius: f32) -> Vec<usize> {
@@ -572,11 +610,34 @@ fn lane_target(w: &World, me_i: usize, support: bool) -> Option<EntityId> {
 }
 
 /// Clear our own jungle. Returns false when there is nothing to do.
+/// Rough duel maths: would `me` clear camp `c` before dying? `margin` > 1
+/// demands a safety buffer.
+fn camp_winnable(w: &World, me: &Entity, c: usize, margin: f32) -> bool {
+    let level = me.hero().map(|h| h.level).unwrap_or(1) as f32;
+    let (mut hp, mut dps, mut my_dps) = (0.0, 0.0, 0.0f32);
+    for e in w.camps[c].members.iter().filter_map(|id| w.get(*id)) {
+        hp += e.hp;
+        dps += e.stats.ad * e.stats.attack_speed * crate::stats::resist_multiplier(me.stats.armor);
+        let bonus = if e.is_epic_monster() { 1.0 } else { 1.5 };
+        let d =
+            me.stats.ad * me.stats.attack_speed * bonus * crate::stats::resist_multiplier(e.stats.armor) + 6.0 * level;
+        my_dps = if my_dps == 0.0 { d } else { my_dps.min(d) };
+    }
+    if hp <= 0.0 {
+        return true;
+    }
+    let time_to_kill = hp / my_dps.max(1.0);
+    let time_to_die = me.hp / dps.max(1.0);
+    time_to_die > time_to_kill * margin
+}
+
+/// Clear our own jungle. Returns false when there is nothing worth doing.
 fn jungle(w: &World, me_i: usize, p: usize, b: &mut BotBrain, out: &mut Vec<(usize, Command)>) -> bool {
     let me = &w.entities[me_i];
     let team = me.team;
     let camp_alive = |c: usize| !w.camps[c].members.is_empty();
-    let valid = b.jungle_camp.filter(|&c| camp_alive(c));
+    let fighting = |c: usize| w.camps[c].aggro == Some(me.id);
+    let valid = b.jungle_camp.filter(|&c| camp_alive(c) && (fighting(c) || camp_winnable(w, me, c, 1.3)));
     let camp = valid.or_else(|| {
         let level = me.hero().map(|h| h.level).unwrap_or(1);
         (0..w.camps.len())
@@ -585,6 +646,7 @@ fn jungle(w: &World, me_i: usize, p: usize, b: &mut BotBrain, out: &mut Vec<(usi
                 let side = w.map.camps[w.camps[c].spawn].side;
                 side == team || (side == Team::Neutral && level >= 11 && me.hp_frac() > 0.8)
             })
+            .filter(|&c| camp_winnable(w, me, c, 1.3))
             .min_by(|&a, &c| {
                 let pa = w.map.camps[w.camps[a].spawn].pos.distance(me.pos);
                 let pc = w.map.camps[w.camps[c].spawn].pos.distance(me.pos);
@@ -606,6 +668,14 @@ fn jungle(w: &World, me_i: usize, p: usize, b: &mut BotBrain, out: &mut Vec<(usi
         }
         return false;
     };
+    // Losing a fight against any camp: back off and recall.
+    let losing = (0..w.camps.len()).any(|k| fighting(k) && !camp_winnable(w, me, k, 0.9));
+    if losing {
+        b.retreating = true;
+        b.jungle_camp = None;
+        out.push((p, Command::Move(w.map.fountain(team))));
+        return true;
+    }
     let members = &w.camps[c].members;
     let target = members
         .iter()
@@ -615,12 +685,6 @@ fn jungle(w: &World, me_i: usize, p: usize, b: &mut BotBrain, out: &mut Vec<(usi
     match target {
         Some(mi) => {
             let t = &w.entities[mi];
-            // Losing the fight against the camp: back off and recall.
-            if me.hp_frac() < 0.3 && t.hp > me.stats.ad * 6.0 {
-                b.retreating = true;
-                out.push((p, Command::Move(w.map.fountain(team))));
-                return true;
-            }
             if me.pos.distance(t.pos) < 250.0 {
                 if let Some(cmd) = choose_skill(w, me_i, mi, 0) {
                     out.push((p, cmd));

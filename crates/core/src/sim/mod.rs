@@ -513,7 +513,7 @@ impl World {
         self.events.clear();
         self.vision_dirty = false;
         if self.winner.is_some() {
-            self.time += DT;
+            // The match clock stops; ticks keep counting so snapshots flow.
             self.tick += 1;
             return;
         }

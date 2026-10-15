@@ -3,7 +3,7 @@ name = "moba-client"
 description = "Browser client (Rust -> WebAssembly): pixel-art renderer, input, UI and networking"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
+rust-version.workspace = true
 
 [lib]
 crate-type = ["cdylib", "rlib"]
